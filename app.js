@@ -2,6 +2,7 @@ const h = require('react-hyperscript')
 const React = require('react')
 const ReactDOM = require('react-dom')
 const Trello = require('trello-browser')
+const pThrottle = require('p-throttle')
 const Select = require('react-select')
 
 const trello = new Trello('ac61d8974aa86dd25f9597fa651a2ed8')
@@ -299,7 +300,8 @@ var actions = React.createClass({
   getInitialState () {
     return {
       action: null,
-      arg: null
+      arg: null,
+      message: null
     }
   },
 
@@ -352,19 +354,22 @@ var actions = React.createClass({
           })
         ])
         : '',
-      argoptions && this.state.arg || argoptions == null
-      ? h('button.pure-button.pure-button-primary',
-          `Perform "${this.state.action}" action on ${this.props.marked.length} cards`)
-      : h('button.pure-button.pure-button-disabled',
-          {disabled: true},
-          'Choose an action to perform on the selected cards')
+      this.state.message
+      ? h('button.pure-button.pure-button-primary', {disabled: true}, this.state.message)
+      : argoptions && this.state.arg || argoptions == null
+        ? h('button.pure-button.pure-button-primary',
+            `Perform "${this.state.action}" action on ${this.props.marked.length} cards`)
+        : h('button.pure-button.pure-button-disabled',
+            {disabled: true},
+            'Choose an action to perform on the selected cards')
     ])
   },
 
   selectAction (option) {
     this.setState({
       action: option.value,
-      arg: null
+      arg: null,
+      message: null
     })
   },
 
@@ -378,7 +383,13 @@ var actions = React.createClass({
     e.preventDefault()
     if (!window.confirm('Are you sure? This is irreversible!')) return
 
-    Promise.all(this.props.marked.map(card => {
+    this.waitingAction = setTimeout(() => {
+      this.setState({
+        message: 'This may take a while'
+      })
+    }, 4000)
+
+    var throttledAction = pThrottle(card => {
       switch (this.state.action) {
         case 'Move to list':
           return trello.put(`/1/cards/${card.id}`, {idList: this.state.arg})
@@ -388,21 +399,30 @@ var actions = React.createClass({
             .catch(() => true /* will fail if label is already in */)
           ))
         case 'Add user':
-          return Promise.all(this.state.arg.map(idmm =>
-            trello.post(`/1/cards/${card.id}/idMembers`, {value: idmm})
-            .catch(() => true /* will fail if user is already in */)
-          ))
+          return trello.put(`/1/cards/${card.id}`, {idMembers: this.state.arg.join(',')})
         case 'Archive':
           return trello.post(`/1/cards/${card.id}/closed`, {value: true})
         case 'Delete':
           return trello.del(`/1/cards/${card.id}`)
       }
-    }))
+    }, 75, 10000)
+
+    Promise.all(this.props.marked.map(card => throttledAction(card)))
     .then(cres => {
+      clearTimeout(this.waitingAction)
       this.setState(this.getInitialState())
+      this.setState({
+        message: 'Done!'
+      })
       this.props.doneAction()
     })
-    .catch(e => console.log('error performing action', this.state, this.props.marked, e))
+    .catch(e => {
+      console.log('error performing action', this.state, this.props.marked, e)
+      this.setState(this.getInitialState())
+      this.setState({
+        message: 'An error ocurred. See developer console.'
+      })
+    })
   }
 })
 
