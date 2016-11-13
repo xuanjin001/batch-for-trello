@@ -2,6 +2,7 @@ const h = require('react-hyperscript')
 const React = require('react')
 const ReactDOM = require('react-dom')
 const Trello = require('trello-browser')
+const Select = require('react-select')
 
 const trello = new Trello('ac61d8974aa86dd25f9597fa651a2ed8')
 
@@ -10,67 +11,40 @@ var App = React.createClass({
     return {
       user: null,
       boards: [],
-      sBoard: null
+      boardClicked: null,
+      sBoard: null,
+      allMarked: false
     }
   },
 
   render () {
     var screen = this.state.user
       ? this.state.sBoard
-        ? h('table.pure-table', [
-          h('thead', [
-            h('tr', [
-              h('th', {colSpan: 4}, this.state.sBoard.name),
-              h('td', {onClick: this.unselectBoard}, [
-                h('a', 'back')
-              ])
-            ]),
-            h('tr', [
-              h('td', 'Name'),
-              h('td', 'List'),
-              h('td', 'Labels'),
-              h('td', 'Members'),
-              h('td', 'Select')
-            ])
-          ]),
-          h('tbody', this.state.sBoard.cards.map(c =>
-            h('tr', [
-              h('td', c.name),
-              h('td', c.list.name),
-              h('td', c.labels.map(label =>
-                h('a.label', {style: {backgroundColor: label.color}}, label.name)
-              )),
-              h('td', ''),
-              h('td', [
-                h('input', {type: 'checkbox'})
-              ])
-            ])
-          ))
+        ? h('div', [
+          this.state.sBoard.cards.find(c => c.marked)
+            ? React.createElement(actions, {
+              marked: this.state.sBoard.cards.filter(c => c.marked),
+              boardData: this.state.sBoard,
+              doneAction: this.selectBoard(this.state.sBoard.index)
+            })
+            : '',
+          board({
+            selectedBoard: this.state.sBoard,
+            allMarked: this.state.allMarked,
+            unselectBoard: this.unselectBoard,
+            markCard: this.markCard,
+            markAll: this.markAll
+          })
         ])
-        : h('table.pure-table', [
-          h('thead', [
-            h('tr', [
-              h('th', {colSpan: 2}, 'boards')
-            ])
-          ]),
-          h('tbody', this.state.boards.map((board, i) =>
-            h('tr', [
-              h('td', [
-                h('a', {onClick: this.selectBoard(i)}, board.name)
-              ]),
-              h('td', [
-                h('a', {
-                  href: `https://trello.com/b/${board.shortLink}`,
-                  target: '_blank'
-                }, board.shortLink)
-              ])
-            ])
-          ))
-        ])
+        : boardList({
+          boards: this.state.boards,
+          clicked: this.state.boardClicked,
+          selectBoard: this.selectBoard
+        })
       : ''
 
     return h('div', [
-      h('.pure-menu.pure-menu-horizontal.pure-menu-fixed', [
+      h('.pure-menu.pure-menu-horizontal', [
         h('span.pure-menu-heading', document.title),
         h('ul.pure-menu-list', [
           h('li.pure-menu-item', [
@@ -146,54 +120,289 @@ var App = React.createClass({
   },
 
   unselectBoard () {
-    this.setState({sBoard: null})
+    this.setState({
+      sBoard: null,
+      boardClicked: null
+    })
   },
 
   selectBoard (i) {
     return () => {
+      this.setState({
+        boardClicked: i
+      })
+
       var board = this.state.boards[i]
 
       Promise.all([
         trello.get(`/1/boards/${board.id}/cards`, {
           filter: 'open',
-          fields: 'name,pos,idList,idLabels',
+          fields: 'name,pos,idList,idLabels,idMembers',
           members: true,
           member_fields: 'username'
         }),
-        trello.get(`/1/boards/${board.id}/labels`),
-        trello.get(`/1/boards/${board.id}/lists`)
+        trello.get(`/1/boards/${board.id}/labels`, {fields: 'color,name'}),
+        trello.get(`/1/boards/${board.id}/members`, {fields: 'username'}),
+        trello.get(`/1/boards/${board.id}/lists`, {
+          filter: 'all',
+          fields: 'closed,name,pos'
+        })
       ])
       .then(results => {
         var labelMap = {}
+        var labels = []
         results[1].forEach(label => {
+          if (!label.name) {
+            label.name = `[ ${label.color} ]`
+          }
           labelMap[label.id] = label
+          labels.push(label)
+        })
+        var memberMap = {}
+        var members = []
+        results[2].forEach(member => {
+          memberMap[member.id] = member
+          members.push(member)
         })
         var listMap = {}
-        results[2].forEach(list => {
+        var lists = []
+        results[3].forEach(list => {
           listMap[list.id] = list
+          lists.push(list)
         })
 
-        var cards = results[0]
-        cards.forEach(card => {
+        var cards = []
+        results[0].forEach(card => {
           card.labels = card.idLabels.map(idl => labelMap[idl])
-          card.lists = card.idLabels.map(idl => listMap[idl])
+          card.members = card.idMembers.map(idl => memberMap[idl])
+          card.list = listMap[card.idList]
+          if (card.list.closed) {
+            return // do not show "open" cards if they are in closed lists
+          }
+
+          cards.push(card)
         })
 
         this.setState({
           sBoard: {
+            index: i,
             name: board.name,
             id: board.id,
+            lists: lists,
+            labels: labels,
+            members: members,
             cards: cards.sort((a, b) => {
               if (a.list.pos === b.list.pos) {
-                return b.pos - a.pos
+                return a.pos - b.pos
               }
-              return b.list.pos - a.list.pos
+              return a.list.pos - b.list.pos
             })
           }
         })
       })
       .catch(e => console.log('selectBoard error', e.stack))
     }
+  },
+
+  markCard (index) {
+    return () => {
+      this.setState(prev => {
+        prev.sBoard.cards[index].marked = !prev.sBoard.cards[index].marked
+        return prev
+      })
+    }
+  },
+
+  markAll () {
+    this.setState(prev => {
+      if (prev.allMarked) {
+        prev.allMarked = false
+        prev.sBoard.cards.forEach(c => c.marked = false)
+      } else {
+        prev.allMarked = true
+        prev.sBoard.cards.forEach(c => c.marked = true)
+      }
+    })
+  }
+})
+
+function boardList (props) {
+  var boards = props.boards
+  var clicked = props.clicked
+
+  return h('table.pure-table.pure-table-bordered', [
+    h('thead', [
+      h('tr', [
+        h('th', {colSpan: 2}, 'boards')
+      ])
+    ]),
+    h('tbody', boards.map((board, i) =>
+      h('tr', {onClick: props.selectBoard(i), className: clicked === i ? 'marked' : ''}, [
+        h('td', [
+          h('a', board.name)
+        ]),
+        h('td', [
+          h('a', {
+            href: `https://trello.com/b/${board.shortLink}`,
+            target: '_blank'
+          }, board.shortLink)
+        ])
+      ])
+    ))
+  ])
+}
+
+function board (props) {
+  var selectedBoard = props.selectedBoard
+  var allMarked = props.allMarked
+
+  return h('table.pure-table.pure-table-bordered', [
+    h('thead', [
+      h('tr', [
+        h('th', {colSpan: 4}, selectedBoard.name),
+        h('td', {onClick: props.unselectBoard}, [
+          h('a', '↰')
+        ])
+      ]),
+      h('tr', [
+        h('td', 'Name'),
+        h('td', [
+          h('input', {type: 'checkbox', onClick: props.markAll, checked: allMarked})
+        ]),
+        h('td', 'List'),
+        h('td', 'Labels'),
+        h('td', 'Members')
+      ])
+    ]),
+    h('tbody', selectedBoard.cards.map((c, index) =>
+      h('tr', {
+        className: c.marked ? 'marked' : '',
+        onClick: props.markCard(index)
+      }, [
+        h('td', c.name),
+        h('td', [
+          h('label', [
+            h('input', {type: 'checkbox', checked: !!c.marked})
+          ])
+        ]),
+        h('td', c.list.name),
+        h('td', c.labels.map(label =>
+          h('a.trello-label', {className: label.color}, label.name)
+        )),
+        h('td', c.members.map(member => member.username).join(', '))
+      ])
+    ))
+  ])
+}
+
+var actions = React.createClass({
+  getInitialState () {
+    return {
+      action: null,
+      arg: null
+    }
+  },
+
+  actions: [
+    'Move to list',
+    'Add label',
+    'Add user',
+    'Archive',
+    'Delete'
+    // remove label x, remove all labels, remove member x, remove all members
+  ],
+
+  render () {
+    var argoptions
+    var multi = false
+    switch (this.state.action) {
+      case 'Move to list':
+        argoptions = this.props.boardData.lists
+        break
+      case 'Add label':
+        argoptions = this.props.boardData.labels
+        multi = true
+        break
+      case 'Add user':
+        argoptions = this.props.boardData.members
+        multi = true
+        break
+      case null: // important for the confirmation button
+        argoptions = []
+        break
+      default:
+        argoptions = null
+    }
+
+    return h('form.action', {onSubmit: this.performAction}, [
+      h('.select-wrapper', [
+        h(Select, {
+          onChange: this.selectAction,
+          options: this.actions.map(act => ({value: act, label: act})),
+          value: this.state.action
+        })
+      ]),
+      argoptions && argoptions.length
+        ? h('.select-wrapper', [
+          h(Select, {
+            onChange: this.selectArg,
+            multi: multi,
+            options: argoptions.map(opt => ({value: opt.id, label: opt.name || opt.username, className: opt.color})),
+            value: this.state.arg
+          })
+        ])
+        : '',
+      argoptions && this.state.arg || argoptions == null
+      ? h('button.pure-button.pure-button-primary',
+          `Perform "${this.state.action}" action on ${this.props.marked.length} cards`)
+      : h('button.pure-button.pure-button-disabled',
+          {disabled: true},
+          'Choose an action to perform on the selected cards')
+    ])
+  },
+
+  selectAction (option) {
+    this.setState({
+      action: option.value,
+      arg: null
+    })
+  },
+
+  selectArg (option) {
+    this.setState({
+      arg: Array.isArray(option) ? option.map(o => o.value) : option.value
+    })
+  },
+
+  performAction (e) {
+    e.preventDefault()
+    if (!window.confirm('Are you sure? This is irreversible!')) return
+
+    Promise.all(this.props.marked.map(card => {
+      switch (this.state.action) {
+        case 'Move to list':
+          return trello.put(`/1/cards/${card.id}`, {idList: this.state.arg})
+        case 'Add label':
+          return Promise.all(this.state.arg.map(idlbl =>
+            trello.post(`/1/cards/${card.id}/idLabels`, {value: idlbl})
+            .catch(() => true /* will fail if label is already in */)
+          ))
+        case 'Add user':
+          return Promise.all(this.state.arg.map(idmm =>
+            trello.post(`/1/cards/${card.id}/idMembers`, {value: idmm})
+            .catch(() => true /* will fail if user is already in */)
+          ))
+        case 'Archive':
+          return trello.post(`/1/cards/${card.id}/closed`, {value: true})
+        case 'Delete':
+          return trello.del(`/1/cards/${card.id}`)
+      }
+    }))
+    .then(cres => {
+      this.setState(this.getInitialState())
+      this.props.doneAction()
+    })
+    .catch(e => console.log('error performing action', this.state, this.props.marked, e))
   }
 })
 
