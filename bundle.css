@@ -1,0 +1,69 @@
+a {
+  cursor: pointer;
+}
+.pure-menu-list {
+  float: right;
+}
+table {
+  width: 100%;
+}
+tbody tr {
+  cursor: pointer;
+}
+tbody tr:hover td {
+  background: #defdef;
+}
+tbody tr.marked td {
+  background: #edbedb;
+}
+.trello-label {
+  display: block;
+  padding: 5px;
+  color: #fff;
+  float: left;
+  margin: 2px 3px 0 0;
+  min-width: 20px;
+  min-height: 18px;
+}
+thead td > a,
+td > label {
+  display: block;
+  width: 100%;
+  height: 100%;
+  text-align: center;
+}
+form.action {
+  width: 80%;
+  margin: 10px auto;
+  text-align: center;
+}
+.green {
+  background-color: #61bd4f;
+}
+.red {
+  background-color: #eb5a46;
+}
+.yellow {
+  background-color: #f2d600;
+}
+.blue {
+  background-color: #0079bf;
+}
+.black {
+  background-color: #4d4d4d;
+}
+.purple {
+  background-color: #c377e0;
+}
+.sky {
+  background-color: #00c2e0;
+}
+.orange {
+  background-color: #ffab4a;
+}
+.lime {
+  background-color: #51e898;
+}
+.pink {
+  background-color: #ff80ce;
+}
