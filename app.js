@@ -96,6 +96,7 @@ var App = React.createClass({
     })
     .catch(e => console.log('trello auth error', e.stack))
     .then(() => {
+      window.tc && window.tc(1)
       window.localStorage.setItem('token', trello.token)
 
       this.getUserData()
@@ -388,6 +389,8 @@ var actions = React.createClass({
         message: 'This may take a while'
       })
     }, 4000)
+
+    window.tc && window.tc(10)
 
     var throttledAction = pThrottle(card => {
       switch (this.state.action) {
